@@ -1,18 +1,21 @@
 # 謎解き代金の請求ページ
 
-Notion の「謎解き予定」データベースから **受取チェック OFF** の公演を取得し、
-メンバーごとの請求額と請求文を GitHub Pages で表示します。
+ページを開くたびに Notion「謎解き予定」から最新の内容を取得し、
+日付ごと・メンバーごとに請求額と請求文を表示します。
 
 - 1人あたり = 金額 ÷ 人数（1円未満切り上げ）。立て替えた人には請求しない
+- 受取チェック ON の公演は「受取済」として表示（「未受取のみ」を外すと見える）
 - 金額・メンバー未入力の公演は「請求に含めていない公演」に表示
-- GitHub Actions が 3 時間ごと（と main への push 時）に Notion から取得して再公開
-- 取得データ（data.json）はリポジトリには保存されず、Pages の公開物にのみ含まれます
 
-## セットアップ
-1. https://www.notion.so/my-integrations でインテグレーションを作成し、トークンを控える
-2. Notion の「謎解き予定」右上「…」→「接続」でそのインテグレーションを追加
-3. このリポジトリの Settings → Secrets and variables → Actions に `NOTION_TOKEN` を登録
-4. Settings → Pages の Source を **GitHub Actions** にする
-5. Actions タブ →「Notion から取得して Pages に公開」→ Run workflow
+## 仕組み
+GitHub Pages（静的ページ） → Google Apps Script（Notion トークンを保持して中継） → Notion API
 
-すぐ反映したいときは 5 の手動実行を使ってください。
+## セットアップ（Google Apps Script）
+1. https://script.google.com で新しいプロジェクトを作成し、`gas/Code.gs` の内容を貼り付けて保存
+2. 左の「プロジェクトの設定」→ スクリプト プロパティに `NOTION_TOKEN` = Notion のシークレット を追加
+3. 右上「デプロイ」→「新しいデプロイ」→ 種類「ウェブアプリ」
+   - 次のユーザーとして実行: 自分 / アクセスできるユーザー: 全員
+   - 初回は権限の承認を求められるので許可する
+4. 発行された URL（`https://script.google.com/macros/s/…/exec`）を `site/config.js` の `API_URL` に設定して push
+
+`Code.gs` を変更したときは「デプロイを管理」→ 編集 → バージョン「新バージョン」で更新してください（URL は変わりません）。
