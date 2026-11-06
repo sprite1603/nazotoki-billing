@@ -56,6 +56,24 @@
   .warn ul { margin:6px 0 0; padding-left:1.2em; }
   .empty { text-align:center; color:var(--sub); padding:40px 0; }
   .error { background:var(--warn-bg); color:var(--warn); border-radius:12px; padding:14px 16px; }
+  details.add { background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:16px; }
+  details.add summary { cursor:pointer; padding:12px 16px; font-weight:600; color:var(--accent); }
+  .form { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px 14px; padding:0 16px 14px; font-size:.85rem; }
+  .form label { display:flex; flex-direction:column; gap:4px; color:var(--sub); }
+  .form input[type=text], .form input[type=number], .form input[type=date] {
+    font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
+  .form .wide { grid-column:1/-1; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chips label { flex-direction:row; align-items:center; gap:4px; background:var(--bg); border:1px solid var(--line);
+                 border-radius:99px; padding:3px 10px; color:var(--ink); cursor:pointer; }
+  .chips label:has(input:checked) { background:var(--accent-weak); border-color:var(--accent); color:var(--accent); }
+  .chips input { display:none; }
+  .form .hint { color:var(--sub); font-size:.8rem; align-self:center; }
+  .tag { font-size:.7rem; font-weight:600; color:var(--accent); background:var(--accent-weak); border-radius:4px; padding:1px 6px; margin-right:6px; }
+  .mini { padding:2px 8px; font-size:.75rem; margin-left:6px; }
+  .mini.del { background:var(--warn-bg); color:var(--warn); }
+  .events li { flex-wrap:wrap; }
+  .events li .acts { width:100%; text-align:right; margin-top:-2px; }
 </style>
 </head>
 <body>
@@ -74,6 +92,19 @@
     <label>立て替え<select id="payer"></select></label>
     <label>メンバー<select id="member"><option value="">全員</option></select></label>
   </div>
+
+  <details class="add" id="addBox">
+    <summary>＋ 臨時の請求を追加</summary>
+    <form class="form" id="addForm">
+      <label>日付<input type="date" id="cDate" required></label>
+      <label class="wide">内容<input type="text" id="cTitle" placeholder="例: 打ち上げ代、タクシー代" required></label>
+      <label>金額（合計）<input type="number" id="cAmount" min="1" step="1" required></label>
+      <label>割る人数<input type="number" id="cPeople" min="1" step="1" placeholder="空欄＝選んだ人数"></label>
+      <div class="wide"><div style="color:var(--sub);margin-bottom:4px">メンバー（立て替えた人も含めて選ぶ）</div><div class="chips" id="cMembers"></div></div>
+      <div class="hint wide" id="cPreview"></div>
+      <div class="wide"><button type="submit">追加する</button></div>
+    </form>
+  </details>
 
   <div class="summary" id="summary"></div>
   <div id="list"></div>
@@ -94,6 +125,13 @@ const el = (tag, cls, text) => { const e = document.createElement(tag);
 
 let EVENTS = [], VIEW = "date";
 
+/* ---------- 臨時の請求（このブラウザに保存） ---------- */
+const CKEY = "customCharges";
+let CUSTOM = [];
+try { CUSTOM = JSON.parse(localStorage.getItem(CKEY) || "[]"); } catch { CUSTOM = []; }
+const saveCustom = () => { try { localStorage.setItem(CKEY, JSON.stringify(CUSTOM)); } catch {} };
+const allEvents = () => EVENTS.concat(CUSTOM.map((c) => ({ ...c, custom: true })));
+
 /* ---------- 集計 ---------- */
 function priced(ev) {
   const n = ev.people || ev.members.length;
@@ -105,7 +143,7 @@ function priced(ev) {
 
 function filtered() {
   const today = todayJST(), unpaid = $("unpaid").checked, future = $("future").checked, only = $("member").value;
-  return EVENTS.map(priced).filter((ev) =>
+  return allEvents().map(priced).filter((ev) =>
     ev.date && (future || ev.date <= today) && (!unpaid || !ev.received) && (!only || ev.members.includes(only)));
 }
 
@@ -198,7 +236,18 @@ function renderByDate(list, events, payer, only, today) {
     const ul = el("ul", "events");
     for (const ev of evs) {
       const li = el("li", ev.received ? "done" : ev.price == null ? "ng" : "");
-      li.append(el("span", "t", ev.title), el("span", "p", ev.price == null ? ev.issue : `${yen(ev.price)}/人 × ${ev.people || ev.members.length}`));
+      const t = el("span", "t");
+      if (ev.custom) t.appendChild(el("span", "tag", "臨時"));
+      t.append(ev.title);
+      const p = el("span", "p", ev.price == null ? ev.issue : `${yen(ev.price)}/人 × ${ev.people || ev.members.length}`);
+      if (ev.custom) {
+        const tog = el("button", "mini", ev.received ? "未受取に戻す" : "受取済にする");
+        tog.onclick = () => { const c = CUSTOM.find((x) => x.id === ev.id); c.received = !c.received; saveCustom(); render(); };
+        const del = el("button", "mini del", "削除");
+        del.onclick = () => { if (confirm(`「${ev.title}」を削除しますか？`)) { CUSTOM = CUSTOM.filter((x) => x.id !== ev.id); saveCustom(); render(); } };
+        li.append(t, p, el("span", "acts"));
+        li.lastChild.append(tog, del);
+      } else li.append(t, p);
       ul.appendChild(li);
     }
     card.appendChild(ul);
@@ -268,8 +317,43 @@ async function load() {
   let saved = prevPayer; try { saved ||= localStorage.getItem("payer"); } catch {}
   payerSel.value = all.includes(saved) ? saved : all.includes("ヒロ") ? "ヒロ" : all[0] || "";
   memberSel.value = all.includes(prevMember) ? prevMember : "";
+  buildMemberChips(all);
   render();
 }
+
+function buildMemberChips(all) {
+  const box = $("cMembers"), checked = new Set([...box.querySelectorAll("input:checked")].map((i) => i.value));
+  const names = [...new Set(all.concat(CUSTOM.flatMap((c) => c.members)))].sort(byJa);
+  box.innerHTML = "";
+  for (const m of names) {
+    const lab = el("label"), cb = el("input"); cb.type = "checkbox"; cb.value = m; cb.checked = checked.has(m);
+    cb.onchange = preview; lab.append(cb, m); box.appendChild(lab);
+  }
+}
+
+function formValues() {
+  const members = [...$("cMembers").querySelectorAll("input:checked")].map((i) => i.value);
+  const amount = Number($("cAmount").value), people = Number($("cPeople").value) || members.length;
+  return { members, amount, people };
+}
+function preview() {
+  const { members, amount, people } = formValues();
+  $("cPreview").textContent = amount && people ? `1人あたり ${yen(Math.ceil(amount / people))}（${people}人で割る）`
+    : members.length ? "" : "メンバーを選んでください";
+}
+["cAmount", "cPeople"].forEach((id) => $(id).oninput = preview);
+$("cDate").value = todayJST();
+$("addForm").onsubmit = (e) => {
+  e.preventDefault();
+  const { members, amount, people } = formValues();
+  if (!members.length) { alert("メンバーを1人以上選んでください"); return; }
+  CUSTOM.push({ id: Date.now().toString(36), title: $("cTitle").value.trim(), date: $("cDate").value,
+                amount, people: Number($("cPeople").value) || null, members, received: false });
+  saveCustom();
+  $("cTitle").value = ""; $("cAmount").value = ""; $("cPeople").value = "";
+  $("cMembers").querySelectorAll("input").forEach((i) => i.checked = false);
+  preview(); render();
+};
 
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   VIEW = b.dataset.view;
