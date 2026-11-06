@@ -72,6 +72,16 @@
   .tag { font-size:.7rem; font-weight:600; color:var(--accent); background:var(--accent-weak); border-radius:4px; padding:1px 6px; margin-right:6px; }
   .mini { padding:2px 8px; font-size:.75rem; margin-left:6px; }
   .mini.del { background:var(--warn-bg); color:var(--warn); }
+  .pp { padding:4px 16px 4px; border-top:1px solid var(--line); }
+  .pp summary { cursor:pointer; font-size:.85rem; color:var(--sub); padding:6px 0; }
+  .pp summary .cnt { color:var(--accent); font-weight:600; }
+  .pprow { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:.85rem; }
+  .pprow .n { min-width:7em; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .pprow input { flex:1; min-width:0; font:inherit; font-size:.8rem; color:var(--ink); background:var(--bg);
+                 border:1px solid var(--line); border-radius:8px; padding:5px 8px; }
+  .pprow input.set { border-color:var(--accent); }
+  .pprow input.bad { border-color:var(--warn); }
+  .ppapp { font-size:.8rem; color:var(--accent); }
   .events li { flex-wrap:wrap; }
   .events li .acts { width:100%; text-align:right; margin-top:-2px; }
 </style>
@@ -125,6 +135,38 @@ const el = (tag, cls, text) => { const e = document.createElement(tag);
 
 let EVENTS = [], VIEW = "date";
 
+/* ---------- PayPay 請求リンク（人＋金額ごとに保存） ---------- */
+const LKEY = "paypayLinks";
+let LINKS = {};
+try { LINKS = JSON.parse(localStorage.getItem(LKEY) || "{}"); } catch { LINKS = {}; }
+const linkKey = (scope, name, amount) => `${scope}|${name}|${amount}`;
+const getLink = (k) => LINKS[k] || "";
+const setLink = (k, v) => { if (v) LINKS[k] = v; else delete LINKS[k];
+  try { localStorage.setItem(LKEY, JSON.stringify(LINKS)); } catch {} };
+const isUrl = (v) => /^https?:\/\/\S+$/.test(v);
+
+/** 名前と金額のリストから、PayPayリンクの入力欄を作る */
+function paypayBox(rows, open) {
+  const d = el("details", "pp"); d.open = open;
+  const sm = el("summary"); d.appendChild(sm);
+  const refresh = () => { const n = rows.filter((r) => getLink(r.key)).length;
+    sm.innerHTML = ""; sm.append("PayPay請求リンク ");
+    sm.appendChild(el("span", "cnt", `${n}/${rows.length}`)); };
+  for (const r of rows) {
+    const row = el("div", "pprow"), inp = el("input");
+    inp.type = "url"; inp.placeholder = "アプリで作ったリンクを貼り付け"; inp.value = getLink(r.key);
+    const mark = () => { inp.className = !inp.value ? "" : isUrl(inp.value.trim()) ? "set" : "bad"; };
+    inp.onchange = () => { const v = inp.value.trim(); setLink(r.key, isUrl(v) ? v : ""); mark(); refresh(); };
+    mark();
+    row.append(el("span", "n", `${r.name} ${yen(r.amount)}`), inp);
+    d.appendChild(row);
+  }
+  const app = el("a", "ppapp", "PayPayアプリを開く"); app.href = "paypay://";
+  d.appendChild(app);
+  refresh();
+  return d;
+}
+
 /* ---------- 臨時の請求（このブラウザに保存） ---------- */
 const CKEY = "customCharges";
 let CUSTOM = [];
@@ -176,7 +218,11 @@ function dayMessage(date, events, owed) {
   const lines = [`【${fmtDate(date)} 謎解き代金】`];
   for (const ev of events) if (ev.price != null && !ev.received) lines.push(`・${ev.title}（${yen(ev.price)}/人）`);
   lines.push("");
-  for (const m of Object.keys(owed).sort(byJa)) lines.push(`${m}：${yen(owed[m])}`);
+  for (const m of Object.keys(owed).sort(byJa)) {
+    lines.push(`${m}：${yen(owed[m])}`);
+    const url = getLink(linkKey(date, m, owed[m]));
+    if (url) lines.push(`  PayPay ${url}`);
+  }
   lines.push("", "お手すきの際にお支払いをお願いします！");
   return lines.join("\n");
 }
@@ -185,7 +231,9 @@ function memberMessage(name, items) {
   const total = items.reduce((s, i) => s + i.price, 0);
   return [`${name}さん`, "謎解きの代金のご請求です。", "",
     ...items.map((i) => `・${fmtDate(i.date)} ${i.title}  ${yen(i.price)}`),
-    "", `合計 ${yen(total)}`, "お手すきの際にお支払いをお願いします！"].join("\n");
+    "", `合計 ${yen(total)}`,
+    ...(getLink(linkKey("member", name, total)) ? [`PayPay ${getLink(linkKey("member", name, total))}`] : []),
+    "お手すきの際にお支払いをお願いします！"].join("\n");
 }
 
 /* ---------- 描画 ---------- */
@@ -258,6 +306,7 @@ function renderByDate(list, events, payer, only, today) {
       for (const m of names) who.appendChild(el("span", "", `${m} ${yen(owed[m])}`));
       card.appendChild(who);
       if (!isFuture) {
+        card.appendChild(paypayBox(names.map((m) => ({ name: m, amount: owed[m], key: linkKey(date, m, owed[m]) })), false));
         const f = el("footer"); f.appendChild(copyButton("この日の請求文をコピー", () => dayMessage(date, evs, owed)));
         card.appendChild(f);
       }
@@ -286,7 +335,7 @@ function renderByMember(list, events, payer, only, today) {
       ul.appendChild(li);
     }
     const f = el("footer"); f.appendChild(copyButton("請求文をコピー", () => memberMessage(name, items)));
-    card.append(head, ul, f);
+    card.append(head, ul, paypayBox([{ name, amount: total, key: linkKey("member", name, total) }], false), f);
     list.appendChild(card);
   }
 }
