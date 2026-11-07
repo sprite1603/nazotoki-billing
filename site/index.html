@@ -221,9 +221,8 @@ function dayMessage(date, events, owed) {
   for (const m of Object.keys(owed).sort(byJa)) {
     lines.push(`${m}：${yen(owed[m])}`);
     const url = getLink(linkKey(date, m, owed[m]));
-    if (url) lines.push(`  PayPay ${url}`);
+    if (url) lines.push(url);
   }
-  lines.push("", "お手すきの際にお支払いをお願いします！");
   return lines.join("\n");
 }
 
@@ -232,8 +231,8 @@ function memberMessage(name, items) {
   return [`${name}さん`, "謎解きの代金のご請求です。", "",
     ...items.map((i) => `・${fmtDate(i.date)} ${i.title}  ${yen(i.price)}`),
     "", `合計 ${yen(total)}`,
-    ...(getLink(linkKey("member", name, total)) ? [`PayPay ${getLink(linkKey("member", name, total))}`] : []),
-    "お手すきの際にお支払いをお願いします！"].join("\n");
+    ...(getLink(linkKey("member", name, total)) ? [getLink(linkKey("member", name, total))] : []),
+  ].join("\n");
 }
 
 /* ---------- 描画 ---------- */
