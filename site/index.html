@@ -72,6 +72,7 @@
   .tag { font-size:.7rem; font-weight:600; color:var(--accent); background:var(--accent-weak); border-radius:4px; padding:1px 6px; margin-right:6px; }
   .mini { padding:2px 8px; font-size:.75rem; margin-left:6px; }
   .mini.del { background:var(--warn-bg); color:var(--warn); }
+  .target { display:block; font-size:.78rem; color:var(--sub); }
   .pp { padding:4px 16px 4px; border-top:1px solid var(--line); }
   .pp summary { cursor:pointer; font-size:.85rem; color:var(--sub); padding:6px 0; }
   .pp summary .cnt { color:var(--accent); font-weight:600; }
@@ -214,9 +215,20 @@ function copyButton(label, getText) {
   return b;
 }
 
-function dayMessage(date, events, owed) {
+/** その日の請求対象全員ではない明細なら、対象者の名前リストを返す */
+function partialTargets(ev, owed, payer, only) {
+  if (ev.price == null || ev.received) return null;
+  const billed = ev.members.filter((m) => m !== payer && (!only || m === only));
+  return billed.length && billed.length < Object.keys(owed).length ? billed.sort(byJa) : null;
+}
+
+function dayMessage(date, events, owed, payer, only) {
   const lines = [`【${fmtDate(date)} 謎解き代金】`];
-  for (const ev of events) if (ev.price != null && !ev.received) lines.push(`・${ev.title}（${yen(ev.price)}/人）`);
+  for (const ev of events) {
+    if (ev.price == null || ev.received) continue;
+    const who = partialTargets(ev, owed, payer, only);
+    lines.push(`・${ev.title}（${yen(ev.price)}/人${who ? "：" + who.join("・") : ""}）`);
+  }
   lines.push("");
   for (const m of Object.keys(owed).sort(byJa)) {
     lines.push(`${m}：${yen(owed[m])}`);
@@ -286,14 +298,25 @@ function renderByDate(list, events, payer, only, today) {
       const t = el("span", "t");
       if (ev.custom) t.appendChild(el("span", "tag", "臨時"));
       t.append(ev.title);
+      const who = partialTargets(ev, owed, payer, only);
+      if (who) t.appendChild(el("span", "target", "対象: " + who.join("・")));
       const p = el("span", "p", ev.price == null ? ev.issue : `${yen(ev.price)}/人 × ${ev.people || ev.members.length}`);
       if (ev.custom) {
         const tog = el("button", "mini", ev.received ? "未受取に戻す" : "受取済にする");
         tog.onclick = () => { const c = CUSTOM.find((x) => x.id === ev.id); c.received = !c.received; saveCustom(); render(); };
+        const edit = el("button", "mini", "金額変更");
+        edit.onclick = () => {
+          const c = CUSTOM.find((x) => x.id === ev.id);
+          const v = prompt(`「${c.title}」の合計金額`, c.amount);
+          if (v == null) return;
+          const n = Number(String(v).replace(/[,円\s]/g, ""));
+          if (!Number.isInteger(n) || n <= 0) { alert("1円以上の整数で入力してください"); return; }
+          c.amount = n; saveCustom(); render();
+        };
         const del = el("button", "mini del", "削除");
         del.onclick = () => { if (confirm(`「${ev.title}」を削除しますか？`)) { CUSTOM = CUSTOM.filter((x) => x.id !== ev.id); saveCustom(); render(); } };
         li.append(t, p, el("span", "acts"));
-        li.lastChild.append(tog, del);
+        li.lastChild.append(edit, tog, del);
       } else li.append(t, p);
       ul.appendChild(li);
     }
@@ -306,7 +329,7 @@ function renderByDate(list, events, payer, only, today) {
       card.appendChild(who);
       if (!isFuture) {
         card.appendChild(paypayBox(names.map((m) => ({ name: m, amount: owed[m], key: linkKey(date, m, owed[m]) })), false));
-        const f = el("footer"); f.appendChild(copyButton("この日の請求文をコピー", () => dayMessage(date, evs, owed)));
+        const f = el("footer"); f.appendChild(copyButton("この日の請求文をコピー", () => dayMessage(date, evs, owed, payer, only)));
         card.appendChild(f);
       }
     }
